@@ -1,0 +1,139 @@
+# DeepRecall
+
+A daily "rare answer" trivia dive. Each round shows a category ("Name a farm animal"). Type any valid
+answer: obvious answers earn a little, uncommon-but-valid answers earn a lot, and every point takes your
+submersible deeper. Correctness gets you in; rarity decides the reward.
+
+Plain HTML, CSS and vanilla JavaScript. No frameworks, no build step, no network calls.
+
+## Running it
+
+Either of these works:
+
+- **Open `index.html` directly** in a browser. Browsers block `fetch()` on `file://` pages, so the game
+  loads the bundled copy `data/prompts.js` instead of `data/prompts.json`.
+- **Serve the folder** (recommended while editing prompts):
+
+  ```sh
+  python3 -m http.server 8000
+  # then visit http://localhost:8000
+  ```
+
+It works on desktop and mobile browsers. Progress, stats and the in-progress dive are kept in
+`localStorage` under keys starting with `deeprecall:v1:`.
+
+## How a dive works
+
+- A run is **7 rounds** of **20 seconds**. Running out of time scores 0 ("Out of air").
+- Points convert to meters. A perfect run (7 × 100 pts) reaches **2,800 m**.
+- **Daily Dive**: everyone gets the same 7 prompts for a given date (a date-seeded shuffle), one play per
+  day. **Unlimited**: random prompts, play as much as you like (recently seen prompts are avoided).
+- The results screen shows depth, rank, a per-round breakdown with the rarest answer you missed, and a
+  spoiler-free emoji share string.
+- Close the tab mid-dive and it resumes where you left off. The prompt stays hidden behind a "Dive
+  paused" cover until you continue, and the timer resumes with the time you had left.
+
+### Tiers
+
+| Tier       | Points | Meaning                                              |
+|------------|-------:|------------------------------------------------------|
+| Common     | 10     | The first answer almost everyone thinks of           |
+| Familiar   | 25     | Well known, but not the first pick                   |
+| Uncommon   | 50     | You had to think for a second                        |
+| Rare       | 75     | Few people come up with it                           |
+| Very Rare  | 90     | Deep knowledge                                       |
+| Legendary  | 100    | Valid, and almost nobody says it                     |
+| Too Clever | 15     | Technically valid but an edge case (a loophole, a technicality or a disputed case) |
+| Not in the bank | 0 | Not in the answer bank                             |
+
+### Answer matching
+
+Input and answers are normalized the same way: lowercase, accents removed, punctuation stripped, `the`
+dropped and a leading `a`/`an` dropped, whitespace collapsed, and spaces ignored ("Fire Fox" = "Firefox").
+`&`, `+` and `#` become `and`, `plus` and `sharp`, so `C++`, `C#` and `C` stay distinct.
+
+On top of exact matches:
+
+- **Aliases** per answer (`"chrome"` and `"google chrome"`).
+- **Plurals**: `cows` matches `Cow`, `bagels` matches `Bagel`.
+- **Typos**: an edit distance of 1 (a Levenshtein edit, or one swap of adjacent letters) is accepted
+  for inputs and answers of 6+ letters. It is not applied when digits are involved (Henry 4 vs Henry 5),
+  or when the input is one typo away from two different answers.
+- **Optional words** per prompt (see below), so `coral` matches `Coral Sea`.
+
+## Adding or editing prompts
+
+All prompts live in `data/prompts.json`:
+
+```json
+{
+  "id": 36,
+  "prompt": "Name a type of cloud",
+  "optionalWords": ["cloud", "clouds"],
+  "answers": [
+    { "text": "Cumulus", "tier": "common" },
+    { "text": "Cumulonimbus", "aliases": ["thunderhead"], "tier": "rare" }
+  ]
+}
+```
+
+- `id`: a unique integer. Never reuse or renumber ids: saved dives refer to prompts by id.
+- `tier`: one of `common`, `familiar`, `uncommon`, `rare`, `very_rare`, `legendary`, `too_clever`.
+- `aliases` (optional): other spellings or names that count as the same answer.
+- `optionalWords` (optional): words players may leave out, such as `sea`/`ocean` or `tree`.
+- Aim for about 25+ answers spread across all tiers. Anything not listed counts as "not in the bank",
+  so for small closed sets (US states, constellations) list every member.
+
+After editing, run the checker (needs Node.js, nothing to install):
+
+```sh
+node tools/check-prompts.js            # validate, then regenerate data/prompts.js
+node tools/check-prompts.js --check    # validate only
+node tools/check-prompts.js --verbose  # also list answers that are one typo apart
+```
+
+It uses the game's own matching code to check that every answer and alias selects its own answer, that no
+two answers collide, and that tiers are valid. It then rewrites `data/prompts.js`, the copy used when
+`index.html` is opened from disk. If you only ever serve the folder over HTTP, `prompts.json` is used
+directly and edits show up on reload.
+
+Note: the daily selection shuffles the full list of prompt ids, so adding or removing prompts changes
+which prompts future Daily Dives use. Everyone with the same files still gets the same dive.
+
+## Tuning (`CONFIG` at the top of `game.js`)
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `roundsPerRun` | 7 | Rounds per dive |
+| `roundSeconds` | 20 | Seconds per round |
+| `lowTimeSeconds` | 5 | When the timer turns red and starts ticking |
+| `maxDepth` | 2800 | Meters for a perfect run. Meters per point = `maxDepth / (rounds × top tier points)` |
+| `tiers` | see above | Label, points, color, share emoji and description of each tier |
+| `zones` | 5 zones | Depth zones/ranks, as fractions of `maxDepth`, also drawn on the gauge |
+| `fuzzy.minLength` / `fuzzy.maxDistance` | 6 / 1 | Typo tolerance |
+| `revealDelayMs`, `descentMs` | 650 / 1800 | Suspense before the reveal; length of the dive animation |
+| `dailyEpoch` | 2026-01-01 | The date of Daily Dive #1 |
+| `dailySalt` | "deeprecall" | Change it to reshuffle all future dailies |
+| `storagePrefix` | `deeprecall:v1:` | localStorage namespace (change it to start everyone fresh) |
+
+The daily rolls over at the player's local midnight.
+
+## Accessibility
+
+- Keyboard-first: Enter submits, Enter again goes to the next round, and focus stays in the answer box.
+- Results are announced through an ARIA live region. Tiers always show their name, not just a color.
+- `prefers-reduced-motion` turns off drifting particles, easing and pop animations. Depth changes jump
+  instead of gliding.
+- Sound effects are generated with WebAudio (no audio files) and can be muted with the speaker button.
+  The setting is remembered.
+
+## Files
+
+```
+index.html           markup for all screens, the How to Play dialog and the submersible art (inline SVG)
+style.css            layout, ocean scene, animations, reduced-motion rules
+game.js              CONFIG, matching, scoring, daily seeding, storage, audio, rendering, game flow
+data/prompts.json    the answer bank (35 prompts, ~2,300 answers)
+data/prompts.js      generated copy of the bank for file:// use
+tools/check-prompts.js  validator + generator for data/prompts.js
+```

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a3a63">
+  <meta name="description" content="DeepRecall: a daily trivia dive where the rarest valid answers take you deepest.">
+  <title>DeepRecall</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230a3a63'/%3E%3Cellipse cx='32' cy='36' rx='18' ry='10' fill='%23ffc94d'/%3E%3Ccircle cx='36' cy='35' r='4' fill='%2364d2ff'/%3E%3Crect x='26' y='20' width='8' height='8' rx='2' fill='%23ffc94d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="is-loading" data-screen="loading">
+  <!-- Shared SVG art (original): the submersible, reused by the big sprite and the gauge marker. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffe082"/>
+        <stop offset="0.55" stop-color="#ffc23d"/>
+        <stop offset="1" stop-color="#d98e1f"/>
+      </linearGradient>
+      <radialGradient id="glass" cx="0.35" cy="0.35" r="0.7">
+        <stop offset="0" stop-color="#d9f6ff"/>
+        <stop offset="0.5" stop-color="#5ccfff"/>
+        <stop offset="1" stop-color="#0d6c9c"/>
+      </radialGradient>
+      <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#fff6c8" stop-opacity="0.9"/>
+        <stop offset="1" stop-color="#fff6c8" stop-opacity="0"/>
+      </linearGradient>
+      <symbol id="sub-symbol" viewBox="0 0 120 70">
+        <rect x="52" y="8" width="20" height="16" rx="5" fill="url(#hull)" stroke="#8a5a12" stroke-width="2"/>
+        <rect x="60" y="1" width="3" height="9" rx="1.5" fill="#8a5a12"/>
+        <rect x="60" y="1" width="10" height="3" rx="1.5" fill="#8a5a12"/>
+        <ellipse cx="58" cy="40" rx="46" ry="22" fill="url(#hull)" stroke="#8a5a12" stroke-width="2.5"/>
+        <path d="M14 40 L2 28 L2 52 Z" fill="#e0a12a" stroke="#8a5a12" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="76" cy="38" r="10" fill="url(#glass)" stroke="#8a5a12" stroke-width="3"/>
+        <circle cx="50" cy="38" r="7" fill="url(#glass)" stroke="#8a5a12" stroke-width="2.5"/>
+        <circle cx="30" cy="40" r="5" fill="url(#glass)" stroke="#8a5a12" stroke-width="2"/>
+        <rect x="100" y="36" width="8" height="8" rx="2" fill="#fff6c8" stroke="#8a5a12" stroke-width="2"/>
+        <path d="M40 60 Q58 66 76 60" fill="none" stroke="#8a5a12" stroke-width="2" stroke-linecap="round"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Background scene. All decorative. -->
+  <div class="scene" aria-hidden="true">
+    <div class="layer layer-water"></div>
+    <div class="layer layer-rays"></div>
+    <div class="layer layer-far">
+      <svg class="far-silhouettes" viewBox="0 0 400 1000" preserveAspectRatio="none">
+        <path d="M0 1000 L0 620 Q30 600 46 640 Q70 700 96 660 L120 700 L120 1000 Z" />
+        <path d="M400 1000 L400 540 Q370 520 352 580 Q330 640 300 610 L280 700 L280 1000 Z" />
+      </svg>
+    </div>
+    <canvas id="particles" class="layer layer-particles"></canvas>
+    <div class="layer layer-floor">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="none">
+        <path class="floor-back" d="M0 300 L0 150 Q100 90 200 140 T420 120 T640 160 T860 100 T1060 150 L1200 120 L1200 300 Z"/>
+        <path class="floor-front" d="M0 300 L0 210 Q120 170 260 220 Q340 245 420 200 Q520 150 640 215 Q760 260 880 200 Q980 160 1080 210 L1200 190 L1200 300 Z"/>
+        <g class="floor-vents">
+          <rect x="300" y="168" width="14" height="40" rx="4"/>
+          <rect x="910" y="160" width="12" height="44" rx="4"/>
+        </g>
+      </svg>
+    </div>
+    <div class="sub-wrap">
+      <div id="sub" class="sub">
+        <svg class="sub-beam" viewBox="0 0 200 80"><path d="M0 34 L200 0 L200 80 L0 46 Z" fill="url(#beam)"/></svg>
+        <svg class="sub-body" viewBox="0 0 120 70"><use href="#sub-symbol"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Depth gauge -->
+  <div id="gauge" class="gauge" role="meter" aria-label="Depth" aria-valuemin="0" aria-valuemax="2800" aria-valuenow="0" aria-valuetext="0 m">
+    <div class="gauge-readout">
+      <span id="gauge-value" class="gauge-value">0 m</span>
+      <span id="gauge-zone" class="gauge-zone">Sunlight Zone</span>
+    </div>
+    <div class="gauge-track">
+      <div class="gauge-fill"></div>
+      <ol id="gauge-marks" class="gauge-marks"></ol>
+      <div class="gauge-marker" aria-hidden="true">
+        <svg viewBox="0 0 120 70"><use href="#sub-symbol"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <button id="mute-btn" class="icon-btn mute-btn" type="button" aria-pressed="false" aria-label="Sound on. Turn sound off">
+    <span class="mute-icon" aria-hidden="true">🔊</span>
+  </button>
+
+  <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <main class="app">
+    <!-- Loading / error -->
+    <div class="loading" aria-hidden="true"><span class="loading-bubble"></span> Filling the tanks…</div>
+    <section id="fatal" class="card fatal" hidden role="alert">
+      <h2>Trouble at the surface</h2>
+      <p id="fatal-text"></p>
+    </section>
+
+    <!-- HOME -->
+    <section id="screen-home" class="screen screen-home" hidden aria-labelledby="home-title">
+      <header class="brand">
+        <h1 id="home-title" class="logo">Deep<span>Recall</span></h1>
+        <p class="tagline">Anyone can name the obvious one.<br>Rare answers take you deeper.</p>
+      </header>
+
+      <div id="resume-banner" class="card resume" hidden>
+        <p id="resume-text"></p>
+        <div class="resume-actions">
+          <button id="resume-btn" class="btn btn-primary" type="button">Resume dive</button>
+          <button id="abandon-btn" class="btn btn-ghost" type="button">Abandon</button>
+        </div>
+      </div>
+
+      <nav class="menu" aria-label="Main menu">
+        <button id="btn-daily" class="menu-btn menu-btn-daily" type="button" data-state="ready">
+          <span class="menu-btn-icon" aria-hidden="true">🌊</span>
+          <span class="menu-btn-text"><strong>Daily Dive</strong><small id="btn-daily-sub">Same 7 prompts for everyone</small></span>
+        </button>
+        <button id="btn-unlimited" class="menu-btn" type="button">
+          <span class="menu-btn-icon" aria-hidden="true">♾️</span>
+          <span class="menu-btn-text"><strong>Unlimited</strong><small id="btn-unlimited-sub">Random prompts, no limit</small></span>
+        </button>
+        <div class="menu-row">
+          <button id="btn-howto" class="menu-btn menu-btn-small" type="button">
+            <span class="menu-btn-icon" aria-hidden="true">❔</span><span class="menu-btn-text"><strong>How to Play</strong></span>
+          </button>
+          <button id="btn-stats" class="menu-btn menu-btn-small" type="button">
+            <span class="menu-btn-icon" aria-hidden="true">📊</span><span class="menu-btn-text"><strong>Stats</strong></span>
+          </button>
+        </div>
+      </nav>
+    </section>
+
+    <!-- ROUND (+ round result) -->
+    <section id="screen-round" class="screen screen-round" hidden aria-label="Dive round">
+      <div class="round-top">
+        <button id="surface-btn" class="btn btn-ghost btn-small" type="button" aria-label="Save and return to menu">⟵ Surface</button>
+        <span id="round-mode" class="chip"></span>
+        <span id="round-score" class="chip chip-score"></span>
+      </div>
+
+      <div id="round-card" class="card round-card">
+        <div class="round-meta">
+          <span id="round-count" class="round-count"></span>
+          <ol id="round-pips" class="pips" aria-label="Round progress"></ol>
+        </div>
+
+        <div class="prompt-wrap">
+          <h2 id="prompt-text" class="prompt"></h2>
+          <button id="pause-overlay" class="pause-overlay" type="button" hidden>
+            <span class="pause-title">Dive paused</span>
+            <span class="pause-sub">Tap or press Enter to continue</span>
+          </button>
+        </div>
+
+        <div id="timer" class="timer" role="progressbar" aria-label="Air left, in seconds" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20">
+          <div class="timer-track"><div id="timer-fill" class="timer-fill"></div></div>
+          <span id="timer-text" class="timer-text" aria-hidden="true">20s</span>
+        </div>
+
+        <form id="round-form" class="answer-form" autocomplete="off" novalidate>
+          <label for="answer-input" class="sr-only">Your answer</label>
+          <input id="answer-input" class="answer-input" type="text" inputmode="text" maxlength="60"
+                 autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                 enterkeyhint="go" placeholder="Type any valid answer…">
+          <button id="submit-btn" class="btn btn-primary answer-submit" type="submit">Dive</button>
+        </form>
+
+        <div id="result-panel" class="result-panel" hidden>
+          <p id="result-reveal-hint" class="reveal-hint">Checking the depths…</p>
+          <div class="result-head">
+            <span id="result-badge-slot"></span>
+            <span id="result-points" class="result-points"></span>
+          </div>
+          <p id="result-message" class="result-message"></p>
+          <p id="result-depth" class="result-depth"></p>
+          <div class="result-actions">
+            <button id="next-btn" class="btn btn-primary" type="button">Next dive</button>
+            <span class="kbd-hint" aria-hidden="true">or press <kbd>Enter</kbd></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SUMMARY -->
+    <section id="screen-summary" class="screen screen-summary" hidden aria-labelledby="summary-heading">
+      <div class="card summary-hero">
+        <h2 id="summary-heading" class="summary-heading" tabindex="-1">
+          <span id="summary-title"></span>
+          <span class="sr-only">: results</span>
+        </h2>
+        <p class="summary-depth" id="summary-depth">0 m</p>
+        <p class="summary-zone" id="summary-zone"></p>
+        <p class="summary-rank" id="summary-rank"></p>
+        <p class="summary-score" id="summary-score"></p>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">Round by round</h3>
+        <ol id="summary-rounds" class="summary-rounds"></ol>
+      </div>
+
+      <div class="card share">
+        <h3 class="section-title">Share (no spoilers)</h3>
+        <label for="share-text" class="sr-only">Share text</label>
+        <textarea id="share-text" class="share-text" rows="4" readonly></textarea>
+        <div class="share-actions">
+          <button id="copy-btn" class="btn btn-primary" type="button">Copy result</button>
+          <span id="copy-status" class="copy-status" role="status"></span>
+        </div>
+        <p id="summary-next-daily" class="next-daily" hidden></p>
+      </div>
+
+      <div class="summary-actions">
+        <button id="summary-again" class="btn btn-primary" type="button">Dive again (Unlimited)</button>
+        <button id="summary-home" class="btn btn-ghost" type="button">Back to the surface</button>
+      </div>
+    </section>
+
+    <!-- STATS -->
+    <section id="screen-stats" class="screen screen-stats" hidden aria-labelledby="stats-heading">
+      <div class="card">
+        <h2 id="stats-heading" class="section-heading" tabindex="-1">Your dive log</h2>
+        <div id="stats-grid" class="stats-grid"></div>
+        <p id="stats-empty" class="muted" hidden>No completed dives yet. Your first one is waiting.</p>
+      </div>
+      <div class="card">
+        <h3 class="section-title">Answers by tier</h3>
+        <ol id="stats-hist" class="hist"></ol>
+      </div>
+      <div class="summary-actions">
+        <button id="stats-back" class="btn btn-primary" type="button">Back</button>
+        <button id="stats-reset" class="btn btn-ghost btn-danger" type="button">Reset stats</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- HOW TO PLAY -->
+  <dialog id="howto" class="modal" aria-labelledby="howto-title">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <h2 id="howto-title">How to play</h2>
+        <button id="howto-close" class="icon-btn" type="button" aria-label="Close how to play">✕</button>
+      </div>
+      <p>Each round gives you a category, like <em>“Name a farm animal.”</em> Type <strong>any</strong> valid answer before your air runs out.</p>
+      <p><strong>Being correct gets you in. Being rare gets you deep.</strong> Obvious answers earn a little; answers few people think of earn a lot.</p>
+      <p id="howto-rules"></p>
+      <h3>The tiers</h3>
+      <ul id="howto-tiers" class="howto-tiers"></ul>
+      <h3>Tips</h3>
+      <ul class="howto-tips">
+        <li>Small typos in longer words still count, and so do plurals and common alternate names.</li>
+        <li><strong>Daily Dive</strong>: everyone gets the same 7 prompts, once per day. <strong>Unlimited</strong>: play as much as you like.</li>
+        <li>Close the tab whenever you like. Your dive is saved and resumes where you left off.</li>
+      </ul>
+    </div>
+  </dialog>
+
+  <script src="game.js"></script>
+</body>
+</html>
