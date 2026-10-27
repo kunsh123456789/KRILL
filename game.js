@@ -36,7 +36,7 @@
       very_rare:  { label: 'Very Rare',  points: 90,  color: '#ff9f43', emoji: '🟧', blurb: 'Deep knowledge. Seriously impressive.' },
       legendary:  { label: 'Legendary',  points: 100, color: '#ffd84d', emoji: '🟨', blurb: 'Valid, and almost nobody says it.' },
       too_clever: { label: 'Too Clever', points: 15,  color: '#ff7eb6', emoji: '🌀', blurb: 'Technically valid, but an edge case: a loophole, a technicality or a disputed case. Not wrong, just a small reward.' },
-      invalid:    { label: 'Not in the bank', points: 0, color: '#ff6b6b', emoji: '🟥', blurb: 'Not in our answer bank, so no points.' },
+      invalid:    { label: 'Not in the bank', points: 0, color: '#ff6b6b', emoji: '🟥', blurb: 'Not in our answer bank. The box clears and you can keep guessing until your air runs out.' },
       timeout:    { label: 'Out of air', points: 0, color: '#7d8a97', emoji: '⬛', blurb: 'The timer ran out.' },
     },
     rarityOrder: ['common', 'familiar', 'uncommon', 'rare', 'very_rare', 'legendary'],
@@ -379,7 +379,10 @@
     stats.totalScore += points;
     stats.bestScore = Math.max(stats.bestScore, points);
     stats.bestDepth = Math.max(stats.bestDepth, metersForPoints(points));
-    for (const r of run.results) stats.tiers[r.tier] = (stats.tiers[r.tier] || 0) + 1;
+    for (const r of run.results) {
+      stats.tiers[r.tier] = (stats.tiers[r.tier] || 0) + 1;
+      if (r.misses) stats.tiers.invalid = (stats.tiers.invalid || 0) + r.misses;
+    }
 
     if (run.mode === 'daily') {
       stats.dailyRuns += 1;
@@ -920,9 +923,10 @@
     const input = $('answer-input');
     input.value = run.phase === 'result' ? (run.results[run.round] || {}).input || '' : '';
     input.readOnly = run.phase === 'result';
-    $('round-card').classList.remove('is-low', 'shake');
+    $('round-card').classList.remove('is-low', 'shake', 'is-miss');
     $('round-form').classList.toggle('is-locked', run.phase === 'result');
     $('result-panel').hidden = true;
+    $('miss-text').hidden = true;
     hideSuggestions();
     $('submit-btn').hidden = run.phase === 'result';
     renderTimer(run.phase === 'result' ? 0 : run.remainingMs);
@@ -948,9 +952,28 @@
       showSuggestions(outcome.suggestions, raw);
       return;
     }
+    if (outcome.tier === 'invalid') { rejectAnswer(raw); return; }
     stopTimer();
     Sound.play('submit');
     commitResult(outcome, raw);
+  }
+
+  /** Wrong answer: shake, clear the box, and keep the round going until something lands or the air runs out. */
+  function rejectAnswer(raw) {
+    run.misses = (run.misses || 0) + 1;
+    saveRun();
+    const input = $('answer-input');
+    input.value = '';
+    focusNoScroll(input);
+    const card = $('round-card');
+    card.classList.remove('shake', 'is-miss');
+    void card.offsetWidth;
+    card.classList.add('shake', 'is-miss');
+    const miss = $('miss-text');
+    miss.textContent = `“${raw}” isn't in the bank. Try again!`;
+    miss.hidden = false;
+    Sound.play('invalid');
+    announce(`${raw} isn't in the bank. Try again.`);
   }
 
   function showSuggestions(answers, raw) {
@@ -978,10 +1001,10 @@
 
   function chooseSuggestion(answer, raw) {
     if (!run || run.phase !== 'round') return;
-    stopTimer();
     hideSuggestions();
-    Sound.play('submit');
-    commitResult(answer ? resultFor(answer, true) : { tier: 'invalid', points: 0, answer: null, fuzzy: false }, raw);
+    if (answer) { stopTimer(); Sound.play('submit'); }
+    if (answer) commitResult(resultFor(answer, true), raw);
+    else rejectAnswer(raw);
   }
 
   function handleTimeout() {
@@ -1001,7 +1024,11 @@
       tier: outcome.tier,
       points: outcome.points,
       fuzzy: outcome.fuzzy,
+      misses: run.misses || 0,
     };
+    run.misses = 0;
+    $('miss-text').hidden = true;
+    $('round-card').classList.remove('is-miss');
     run.results[run.round] = result;
     run.phase = 'result';
     run.remainingMs = ROUND_MS;
@@ -1017,6 +1044,10 @@
     showResult(result, true);
   }
 
+  function plural(n, one, many) {
+    return `${n} ${n === 1 ? one : many}`;
+  }
+
   function wasAutocorrected(result) {
     return !!(result.fuzzy && result.answer && normalize(result.input) !== normalize(result.answer));
   }
@@ -1025,7 +1056,7 @@
     const t = CONFIG.tiers[result.tier];
     const fixed = wasAutocorrected(result) ? `Auto-corrected “${result.input}” → ${result.answer}. ` : '';
     switch (result.tier) {
-      case 'timeout': return 'Out of air! The timer ran out, so no points this round.';
+      case 'timeout': return `Out of air! The timer ran out${result.misses ? ` after ${plural(result.misses, 'wrong guess', 'wrong guesses')}` : ''}, so no points this round.`;
       case 'invalid': return `Hmm, “${result.input}” isn't in our answer bank. No points this time, but keep diving.`;
       case 'too_clever': return `${fixed}${result.answer}: technically valid, just an edge case. The judges admire it, but it's only a small reward.`;
       default: return fixed ? `${fixed}${t.blurb}` : `${result.answer}. ${t.blurb}`;
@@ -1232,6 +1263,7 @@
         el('div', { class: 'summary-round-body' }, [
           tierBadge(r.tier),
           el('span', { class: 'summary-round-answer', text: youSaid }),
+          r.misses ? el('span', { class: 'summary-round-misses', text: `after ${plural(r.misses, 'miss', 'misses')}` }) : null,
         ]),
         missed ? el('p', { class: 'summary-round-missed' }, [
           missedLabel,

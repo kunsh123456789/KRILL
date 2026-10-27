@@ -25,6 +25,8 @@ It works on desktop and mobile browsers. Progress, stats and the in-progress div
 ## How a dive works
 
 - A run is **7 rounds** of **20 seconds**. Running out of time scores 0 ("Out of air").
+- A wrong answer doesn't end the round: the box shakes and clears, and you keep guessing until an
+  answer lands or the timer runs out. The results screen notes how many misses each round took.
 - Points convert to meters. A perfect run (7 × 100 pts) reaches **2,800 m**.
 - **Daily Dive**: everyone gets the same 7 prompts for a given date (a date-seeded shuffle), one play per
   day. **Unlimited**: random prompts, play as much as you like (recently seen prompts are avoided).
@@ -44,7 +46,7 @@ It works on desktop and mobile browsers. Progress, stats and the in-progress div
 | Very Rare  | 90     | Deep knowledge                                       |
 | Legendary  | 100    | Valid, and almost nobody says it                     |
 | Too Clever | 15     | Technically valid but an edge case (a loophole, a technicality or a disputed case) |
-| Not in the bank | 0 | Not in the answer bank                             |
+| Not in the bank | 0 | Not in the answer bank: the box clears and you try again |
 
 ### Answer matching
 

@@ -558,6 +558,14 @@ body:not(.is-loading) .loading { display: none; }
 }
 
 .shake { animation: shake 0.35s ease-in-out; }
+
+.miss-text { margin-top: 10px; color: #ff9b9b; font-weight: 600; animation: panel-in 0.2s ease-out; }
+.is-miss .answer-input { animation: miss-flash 0.6s ease-out; }
+@keyframes miss-flash {
+  0% { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.35); }
+  100% { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 201, 77, 0.3); }
+}
+.summary-round-misses { color: var(--muted); font-size: 14px; }
 @keyframes shake {
   20%, 60% { transform: translateX(-6px); }
   40%, 80% { transform: translateX(6px); }
