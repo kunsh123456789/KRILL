@@ -170,6 +170,11 @@
           <button id="submit-btn" class="btn btn-primary answer-submit" type="submit">Dive</button>
         </form>
 
+        <div id="suggest-panel" class="suggest-panel" hidden>
+          <p id="suggest-text" class="suggest-text"></p>
+          <div id="suggest-list" class="suggest-list" role="group" aria-label="Auto-correct suggestions"></div>
+        </div>
+
         <div id="result-panel" class="result-panel" hidden>
           <p id="result-reveal-hint" class="reveal-hint">Checking the depths…</p>
           <div class="result-head">
@@ -253,7 +258,8 @@
       <ul id="howto-tiers" class="howto-tiers"></ul>
       <h3>Tips</h3>
       <ul class="howto-tips">
-        <li>Small typos in longer words still count, and so do plurals and common alternate names.</li>
+        <li><strong>Auto-correct</strong> fixes typos for you (“girafe” → Giraffe). If your typo is close to more than one answer, you'll be asked which one you meant.</li>
+        <li>Plurals and common alternate names count too.</li>
         <li><strong>Daily Dive</strong>: everyone gets the same 7 prompts, once per day. <strong>Unlimited</strong>: play as much as you like.</li>
         <li>Close the tab whenever you like. Your dive is saved and resumes where you left off.</li>
       </ul>

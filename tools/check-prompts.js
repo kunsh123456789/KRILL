@@ -4,7 +4,7 @@
  *
  *   node tools/check-prompts.js            validate + regenerate data/prompts.js
  *   node tools/check-prompts.js --check    validate only
- *   node tools/check-prompts.js --verbose  also list typo-ambiguous answer pairs
+ *   node tools/check-prompts.js --verbose  also list answers auto-correct could confuse
  */
 'use strict';
 const fs = require('fs');
@@ -61,14 +61,14 @@ for (const p of prompts || []) {
   }
 
   if (args.has('--verbose')) {
-    const { minLength, maxDistance } = game.CONFIG.fuzzy;
-    const keys = index.keys.filter((k) => k.length >= minLength);
+    const keys = index.keys.filter((k) => game.allowedEdits(k.length) > 0);
     for (let i = 0; i < keys.length; i++) {
       for (let j = i + 1; j < keys.length; j++) {
         const a = index.exact.get(keys[i]);
         const b = index.exact.get(keys[j]);
-        if (a !== b && game.editDistance(keys[i], keys[j], maxDistance) <= maxDistance) {
-          warnings.push(`${where}: "${keys[i]}" (${a.text}) and "${keys[j]}" (${b.text}) are one typo apart.`);
+        const limit = Math.min(game.allowedEdits(keys[i].length), game.allowedEdits(keys[j].length));
+        if (a !== b && game.editDistance(keys[i], keys[j], limit) <= limit) {
+          warnings.push(`${where}: "${keys[i]}" (${a.text}) and "${keys[j]}" (${b.text}) are within auto-correct range of each other.`);
         }
       }
     }

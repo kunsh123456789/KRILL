@@ -15,7 +15,19 @@
     revealDelayMs: 650,         // suspense before the tier pops
     descentMs: 1800,            // how long the dive animation takes
     nextGuardMs: 400,           // ignore "next" this soon after submitting
-    fuzzy: { minLength: 6, maxDistance: 1 },
+    // Auto-correct: how many typos (edits) are forgiven, by word length.
+    // An edit is an insert, delete, substitution or swap of two neighbors.
+    autocorrect: {
+      enabled: true,
+      rules: [
+        { minLength: 5, maxDistance: 1 },
+        { minLength: 9, maxDistance: 2 },
+      ],
+      squashDoubles: true,      // "acomodation" ~ "accommodation" (doubled-letter slips)
+      keepFirstLetter: true,    // typos rarely hit the first letter; stops "Monkey" -> Donkey
+      suggestOnAmbiguous: true, // close to several answers -> "Did you mean...?"
+      maxSuggestions: 3,
+    },
     tiers: {
       common:     { label: 'Common',     points: 10,  color: '#b9c3cd', emoji: '⬜', blurb: 'The first answer almost everyone thinks of.' },
       familiar:   { label: 'Familiar',   points: 25,  color: '#5fd38d', emoji: '🟩', blurb: 'Well known, but not the very first pick.' },
@@ -125,7 +137,50 @@
     return { exact, keys: Array.from(exact.keys()), optional, conflicts };
   }
 
-  /** Find the answer a player meant. Returns { answer, fuzzy } or null. */
+  /** Typos forgiven for a word of this length (0 = none). */
+  function allowedEdits(length) {
+    let allowed = 0;
+    for (const rule of CONFIG.autocorrect.rules) if (length >= rule.minLength) allowed = Math.max(allowed, rule.maxDistance);
+    return allowed;
+  }
+
+  function squashDoubles(s) {
+    return s.replace(/(.)\1+/g, '$1');
+  }
+
+  /**
+   * Auto-correct: find the answer(s) closest to a misspelled input.
+   * Digits are never treated as typos (Henry 4 vs Henry 5).
+   * Returns { answer, fuzzy: true } for one clear winner, { suggestions } when
+   * several answers are equally close, or null.
+   */
+  function autocorrect(index, variants) {
+    const ac = CONFIG.autocorrect;
+    if (!ac.enabled) return null;
+    let bestD = Infinity;
+    let found = [];
+    for (const v of variants) {
+      const cap = /\d/.test(v) ? 0 : allowedEdits(v.length);
+      if (!cap) continue;
+      const vSquashed = squashDoubles(v);
+      for (const key of index.keys) {
+        if (/\d/.test(key) || (ac.keepFirstLetter && key[0] !== v[0])) continue;
+        const limit = Math.min(cap, allowedEdits(key.length));
+        if (!limit) continue;
+        // A doubled-letter slip ranks just ahead of a single real typo.
+        const d = ac.squashDoubles && squashDoubles(key) === vSquashed ? 0.5 : editDistance(v, key, limit);
+        if (d > limit || d > bestD) continue;
+        if (d < bestD) { bestD = d; found = []; }
+        const answer = index.exact.get(key);
+        if (!found.includes(answer)) found.push(answer);
+      }
+    }
+    if (found.length === 1) return { answer: found[0], fuzzy: true };
+    if (found.length > 1) return { suggestions: found.slice(0, ac.maxSuggestions) };
+    return null;
+  }
+
+  /** Find the answer a player meant. Returns { answer, fuzzy }, { suggestions } or null. */
   function matchAnswer(prompt, index, input) {
     const norm = normalize(input);
     if (!norm) return null;
@@ -144,23 +199,7 @@
       for (const f of forms) if (index.exact.has(f)) return { answer: index.exact.get(f), fuzzy: false };
     }
 
-    // Light typo tolerance, only for longer words. Digits are never "typos"
-    // (Henry 4 vs Henry 5), and an input that is one typo away from two
-    // different answers is too ambiguous to guess.
-    const { minLength, maxDistance } = CONFIG.fuzzy;
-    let bestD = Infinity;
-    let found = new Set();
-    for (const v of variants) {
-      if (v.length < minLength || /\d/.test(v)) continue;
-      for (const key of index.keys) {
-        if (key.length < minLength || /\d/.test(key)) continue;
-        const d = editDistance(v, key, maxDistance);
-        if (d > maxDistance || d > bestD) continue;
-        if (d < bestD) { bestD = d; found = new Set(); }
-        found.add(index.exact.get(key));
-      }
-    }
-    return found.size === 1 ? { answer: found.values().next().value, fuzzy: true } : null;
+    return autocorrect(index, variants);
   }
 
   /* =========================================================================
@@ -168,9 +207,13 @@
    * ======================================================================= */
   function scoreAnswer(prompt, index, input) {
     const match = matchAnswer(prompt, index, input);
-    if (!match) return { tier: 'invalid', points: 0, answer: null, fuzzy: false };
-    const tier = CONFIG.tiers[match.answer.tier] ? match.answer.tier : 'common';
-    return { tier, points: CONFIG.tiers[tier].points, answer: match.answer, fuzzy: match.fuzzy };
+    if (!match || !match.answer) return { tier: 'invalid', points: 0, answer: null, fuzzy: false, suggestions: match ? match.suggestions : null };
+    return resultFor(match.answer, match.fuzzy);
+  }
+
+  function resultFor(answer, fuzzy) {
+    const tier = CONFIG.tiers[answer.tier] ? answer.tier : 'common';
+    return { tier, points: CONFIG.tiers[tier].points, answer, fuzzy };
   }
 
   function metersForPoints(points) {
@@ -289,7 +332,7 @@
 
   const api = {
     CONFIG, MAX_RUN_POINTS, METERS_PER_POINT,
-    normalize, compactKey, editDistance, buildIndex, matchAnswer, scoreAnswer,
+    normalize, compactKey, editDistance, allowedEdits, buildIndex, matchAnswer, scoreAnswer,
     metersForPoints, zoneFor, rankFor, bestMissedAnswer,
     dateKeyFor, shiftDateKey, dailyNumber, hashString, mulberry32, dailyPromptIds, buildShareText,
   };
@@ -356,7 +399,7 @@
   /* =========================================================================
    * Data
    * ======================================================================= */
-  const Data = { prompts: [], byId: new Map(), indexes: new Map() };
+  const Data = { prompts: [], byId: new Map(), indexes: new Map(), bankId: '' };
 
   function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -385,6 +428,8 @@
     Data.prompts = list.filter((p) => p && Number.isFinite(p.id) && p.prompt && Array.isArray(p.answers) && p.answers.length);
     Data.byId = new Map(Data.prompts.map((p) => [p.id, p]));
     Data.indexes = new Map();
+    // Fingerprint of the bank, so a dive saved under a different bank isn't resumed with the wrong prompts.
+    Data.bankId = hashString(Data.prompts.map((p) => `${p.id}:${p.prompt}`).join('|')).toString(36);
   }
 
   function indexFor(prompt) {
@@ -413,6 +458,7 @@
       v: 1,
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       mode,
+      bank: Data.bankId,
       dateKey: today,
       dailyNumber: dailyNumber(today),
       promptIds: mode === 'daily' ? dailyPromptIds(Data.prompts, today) : pickUnlimitedIds(),
@@ -424,7 +470,7 @@
   }
 
   function isValidRun(r) {
-    return r && r.v === 1 && Array.isArray(r.promptIds) && r.promptIds.length === CONFIG.roundsPerRun &&
+    return r && r.v === 1 && r.bank === Data.bankId && Array.isArray(r.promptIds) && r.promptIds.length === CONFIG.roundsPerRun &&
       r.promptIds.every((id) => Data.byId.has(id)) && Array.isArray(r.results) &&
       r.round >= 0 && r.round < CONFIG.roundsPerRun && ['round', 'result', 'done'].includes(r.phase);
   }
@@ -877,6 +923,7 @@
     $('round-card').classList.remove('is-low', 'shake');
     $('round-form').classList.toggle('is-locked', run.phase === 'result');
     $('result-panel').hidden = true;
+    hideSuggestions();
     $('submit-btn').hidden = run.phase === 'result';
     renderTimer(run.phase === 'result' ? 0 : run.remainingMs);
   }
@@ -892,22 +939,63 @@
       announce('Type an answer first.');
       return;
     }
-    stopTimer();
     const prompt = currentPrompt();
-    const outcome = scoreAnswer(prompt, indexFor(prompt), input.value);
+    const raw = input.value.trim().slice(0, 80);
+    const outcome = scoreAnswer(prompt, indexFor(prompt), raw);
+    // Close to several answers: let the player pick instead of scoring zero.
+    // The timer keeps running while they choose.
+    if (outcome.suggestions && outcome.suggestions.length && CONFIG.autocorrect.suggestOnAmbiguous) {
+      showSuggestions(outcome.suggestions, raw);
+      return;
+    }
+    stopTimer();
     Sound.play('submit');
-    commitResult(outcome, input.value.trim().slice(0, 80));
+    commitResult(outcome, raw);
+  }
+
+  function showSuggestions(answers, raw) {
+    const list = $('suggest-list');
+    list.textContent = '';
+    answers.forEach((answer) => {
+      const btn = el('button', { class: 'btn btn-ghost suggest-btn', type: 'button', text: answer.text });
+      btn.addEventListener('click', () => chooseSuggestion(answer, raw));
+      list.append(btn);
+    });
+    const none = el('button', { class: 'btn btn-ghost btn-small suggest-none', type: 'button', text: 'None of these' });
+    none.addEventListener('click', () => chooseSuggestion(null, raw));
+    list.append(none);
+    $('suggest-text').textContent = `“${raw}” is close to more than one answer. Did you mean…`;
+    $('suggest-panel').hidden = false;
+    Sound.play('click');
+    announce(`Did you mean ${answers.map((a) => a.text).join(' or ')}? Choose one, or keep typing.`);
+    focusNoScroll(list.querySelector('button'));
+  }
+
+  function hideSuggestions() {
+    $('suggest-panel').hidden = true;
+    $('suggest-list').textContent = '';
+  }
+
+  function chooseSuggestion(answer, raw) {
+    if (!run || run.phase !== 'round') return;
+    stopTimer();
+    hideSuggestions();
+    Sound.play('submit');
+    commitResult(answer ? resultFor(answer, true) : { tier: 'invalid', points: 0, answer: null, fuzzy: false }, raw);
   }
 
   function handleTimeout() {
     if (!run || run.phase !== 'round') return;
+    hideSuggestions();
     Sound.play('timeout');
     commitResult({ tier: 'timeout', points: 0, answer: null, fuzzy: false }, '');
   }
 
   function commitResult(outcome, rawInput) {
+    hideSuggestions();
     const result = {
       promptId: run.promptIds[run.round],
+      prompt: currentPrompt().prompt,
       input: rawInput,
       answer: outcome.answer ? outcome.answer.text : null,
       tier: outcome.tier,
@@ -929,16 +1017,18 @@
     showResult(result, true);
   }
 
+  function wasAutocorrected(result) {
+    return !!(result.fuzzy && result.answer && normalize(result.input) !== normalize(result.answer));
+  }
+
   function resultMessage(result) {
     const t = CONFIG.tiers[result.tier];
+    const fixed = wasAutocorrected(result) ? `Auto-corrected “${result.input}” → ${result.answer}. ` : '';
     switch (result.tier) {
       case 'timeout': return 'Out of air! The timer ran out, so no points this round.';
       case 'invalid': return `Hmm, “${result.input}” isn't in our answer bank. No points this time, but keep diving.`;
-      case 'too_clever': return `${result.answer}: technically valid, just an edge case. The judges admire it, but it's only a small reward.`;
-      default: {
-        const close = result.fuzzy && normalize(result.input) !== normalize(result.answer) ? ' (close enough!)' : '';
-        return `${result.answer}${close}. ${t.blurb}`;
-      }
+      case 'too_clever': return `${fixed}${result.answer}: technically valid, just an edge case. The judges admire it, but it's only a small reward.`;
+      default: return fixed ? `${fixed}${t.blurb}` : `${result.answer}. ${t.blurb}`;
     }
   }
 
@@ -1124,7 +1214,8 @@
     const list = $('summary-rounds');
     list.textContent = '';
     finished.results.forEach((r, i) => {
-      const prompt = Data.byId.get(r.promptId);
+      const byId = Data.byId.get(r.promptId);
+      const prompt = byId && (!r.prompt || byId.prompt === r.prompt) ? byId : null;
       const missed = prompt ? bestMissedAnswer(prompt, r.answer) : null;
       const youSaid = r.tier === 'timeout' ? 'No answer (out of air)'
         : r.answer && normalize(r.input) !== normalize(r.answer) ? `“${r.input}” → ${r.answer}`
@@ -1135,7 +1226,7 @@
       list.append(el('li', { class: 'summary-round', style: { '--tier': CONFIG.tiers[r.tier].color } }, [
         el('div', { class: 'summary-round-head' }, [
           el('span', { class: 'summary-round-num', text: `${i + 1}` }),
-          el('span', { class: 'summary-round-prompt', text: prompt ? prompt.prompt : 'Unknown prompt' }),
+          el('span', { class: 'summary-round-prompt', text: prompt ? prompt.prompt : r.prompt || 'Unknown prompt' }),
           el('span', { class: 'summary-round-pts', text: `+${r.points}` }),
         ]),
         el('div', { class: 'summary-round-body' }, [
@@ -1299,6 +1390,7 @@
       else if (paused) setPaused(false);
       else submitAnswer();
     });
+    $('answer-input').addEventListener('input', () => { if (!$('suggest-panel').hidden) hideSuggestions(); });
     $('pause-overlay').addEventListener('click', () => { Sound.ensure(); setPaused(false); });
     $('next-btn').addEventListener('click', () => { submittedAt = 0; nextRound(); });
     $('surface-btn').addEventListener('click', surface);
